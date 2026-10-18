@@ -1,0 +1,27 @@
+{
+  "name": "library-management-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Library Management System powered by MySQL",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "keywords": [
+    "library",
+    "mysql",
+    "express",
+    "nodejs",
+    "rdbms"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "morgan": "^1.10.0",
+    "mysql2": "^3.12.0"
+  }
+}

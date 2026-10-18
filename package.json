@@ -1,0 +1,22 @@
+{
+  "name": "library-automation-software",
+  "version": "1.0.0",
+  "description": "Full-Stack College Library Management System using MySQL 8.0, Node.js, Express, and React",
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "backend": "cd backend && npm run dev",
+    "frontend": "cd frontend && npm run dev",
+    "test": "cd backend && npm test",
+    "seed": "powershell -Command \"Get-Content database/seed.sql -Raw | mysql -u root -p library_management\""
+  },
+  "keywords": [
+    "library",
+    "mysql",
+    "fullstack",
+    "react",
+    "express",
+    "rdbms"
+  ],
+  "author": "",
+  "license": "ISC"
+}
