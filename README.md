@@ -70,7 +70,7 @@ Rather than presenting an isolated frontend prototype or simulated mock data, **
 │  └──────────┬───────────┘         └───────────┬───────────┘  │
 │             │                                 │              │
 │  ┌──────────▼───────────┐         ┌───────────▼───────────┐  │
-│  │   5 Stored           │         │   Database Triggers & │  │
+│  │   6 Stored           │         │   Database Triggers & │  │
 │  │   Procedures (ACID)  │         │   Audit Trails        │  │
 │  └──────────────────────┘         └───────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
@@ -135,7 +135,14 @@ The core architecture directly models the six primary entities specified in the 
 ## 6. Stored Procedures, Triggers & Views
 
 ### Stored Procedures (`database/procedures.sql`)
-1. **`sp_IssueBook(p_MemberID, p_ISBN, p_StaffID, OUT p_IssueID, OUT p_DueDate, OUT p_StatusMessage)`**
+1. **`sp_AddBook(p_ISBN, p_Title, p_AuthorName, p_PublisherName, p_Price, p_NoOfPages, p_Edition, p_TotalCopies, OUT p_StatusMessage)`**
+   * Atomically registers a new book title in the catalog.
+   * Dynamically checks if `PublisherName` exists in `Publisher`; if missing, automatically creates the publisher and assigns the generated `PublisherID`.
+   * Enforces non-negative price, non-negative copy count, and valid page constraints.
+   * Synchronizes `AvailableCopies = TotalCopies` initially.
+   * Automatically fires the `trg_Books_AfterInsert` trigger, inserting an audit entry into `BookAuditLog`.
+   * Commits atomically or executes a complete rollback upon any failure.
+2. **`sp_IssueBook(p_MemberID, p_ISBN, p_StaffID, OUT p_IssueID, OUT p_DueDate, OUT p_StatusMessage)`**
    * Validates staff exists and is active.
    * Validates member exists and has `MembershipStatus = 'Active'`.
    * Enforces lending limit (`max_books_per_member` from `Settings`, default 3).
@@ -145,7 +152,7 @@ The core architecture directly models the six primary entities specified in the 
    * Decrements `AvailableCopies = AvailableCopies - 1`.
    * Inserts the new checkout row in `BookIssued`.
    * Commits atomically or issues a full rollback upon any violation.
-2. **`sp_ReturnBook(p_IssueID, p_StaffID, OUT p_FineAssessed, OUT p_DaysOverdue, OUT p_StatusMessage)`**
+3. **`sp_ReturnBook(p_IssueID, p_StaffID, OUT p_FineAssessed, OUT p_DaysOverdue, OUT p_StatusMessage)`**
    * Locks the target issue row with `FOR UPDATE`.
    * Prevents duplicate returns: rejects returns if status is not 'Issued'.
    * Calculates overdue duration via `DATEDIFF(CURDATE(), DueDate)`.
@@ -153,15 +160,15 @@ The core architecture directly models the six primary entities specified in the 
    * Updates `ReturnDate = CURDATE()`, `ReturnedBy = p_StaffID`, `Status = 'Returned'`, and records `FineAmount`.
    * Restores inventory: `UPDATE Books SET AvailableCopies = AvailableCopies + 1`.
    * Commits atomically.
-3. **`sp_RecordFinePayment(p_IssueID, p_MemberID, p_StaffID, p_Amount, p_PaymentMethod, p_TransactionID, p_Remarks, OUT p_ReceiptID, OUT p_NewBalance, OUT p_StatusMessage)`**
+4. **`sp_RecordFinePayment(p_IssueID, p_MemberID, p_StaffID, p_Amount, p_PaymentMethod, p_TransactionID, p_Remarks, OUT p_ReceiptID, OUT p_NewBalance, OUT p_StatusMessage)`**
    * Locks issue record and computes outstanding balance (`FineAmount - FinePaidAmount`).
    * Rejects overpayments where `p_Amount > OutstandingBalance`.
    * Creates receipt record in `Receipt` table.
    * Updates `FinePaidAmount = FinePaidAmount + p_Amount` on `BookIssued`.
    * Commits atomically.
-4. **`sp_GetMemberBorrowingHistory(p_MemberID)`**
+5. **`sp_GetMemberBorrowingHistory(p_MemberID)`**
    * Returns complete member lending records, book details, staff names, and fine balances.
-5. **`sp_GetOverdueBooks()`**
+6. **`sp_GetOverdueBooks()`**
    * Returns all currently overdue loans with dynamically calculated penalties.
 
 ### Database Triggers (`database/triggers.sql`)
@@ -247,6 +254,15 @@ npm install
 
 ### Step 5: Start the Application
 
+#### Option A: One-Click Launch (Recommended for Windows)
+Simply double-click [`start.bat`](file:///c:/Users/yashr/OneDrive/Desktop/Projects/Library%20Automation%20Software%20-%20RBT%2063%20&%2065/start.bat) in the project root directory. It will:
+- Verify Node.js and MySQL service availability.
+- Automatically check dependencies.
+- Open separate titled windows for the Backend API (Port 5000) and Frontend (Port 5173).
+- Automatically open `http://localhost:5173` in your default browser.
+
+#### Option B: Manual Launch (Two Terminals)
+
 **Terminal 1 (Backend Server):**
 ```bash
 cd backend
@@ -262,6 +278,28 @@ npm run dev
 ```
 
 Open `http://localhost:5173` in any modern web browser.
+
+### Direct Database Operations & MySQL Workbench Verification
+
+If you want to perform operations or test directly inside **MySQL Workbench**:
+1. Open MySQL Workbench and connect to your database instance (`localhost:3306`).
+2. Open [`database/add-book.sql`](file:///c:/Users/yashr/OneDrive/Desktop/Projects/Library%20Automation%20Software%20-%20RBT%2063%20&%2065/database/add-book.sql) in Workbench (`File` &rarr; `Open SQL Script...`).
+3. Execute the stored procedure:
+   ```sql
+   USE library_management;
+
+   CALL sp_AddBook(
+       '978-0134494166', 'Clean Architecture', 'Robert C. Martin', 
+       'Pearson Education', 950.00, 432, '1st Edition', 5, @status
+   );
+   SELECT @status;
+   ```
+4. Verify the data and the audit trigger execution:
+   ```sql
+   SELECT * FROM Books ORDER BY CreatedAt DESC LIMIT 5;
+   SELECT * FROM vw_BookPublisherDetails WHERE ISBN = '978-0134494166';
+   SELECT * FROM BookAuditLog WHERE ISBN = '978-0134494166';
+   ```
 
 ---
 

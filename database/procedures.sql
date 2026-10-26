@@ -414,4 +414,120 @@ BEGIN
     ORDER BY DaysOverdue DESC;
 END$$
 
+-- ============================================================================
+-- 6. Procedure: AddBook
+-- Atomically creates a new book, resolves or registers publisher, and sets initial stock
+-- ============================================================================
+DROP PROCEDURE IF EXISTS `sp_AddBook`$$
+CREATE PROCEDURE `sp_AddBook`(
+    IN p_ISBN VARCHAR(20),
+    IN p_Title VARCHAR(200),
+    IN p_AuthorName VARCHAR(150),
+    IN p_PublisherName VARCHAR(150),
+    IN p_Price DECIMAL(10,2),
+    IN p_NoOfPages INT,
+    IN p_Edition VARCHAR(50),
+    IN p_TotalCopies INT,
+    OUT p_StatusMessage VARCHAR(255)
+)
+proc_label: BEGIN
+    DECLARE v_PublisherID INT DEFAULT NULL;
+
+    -- Exit handler for unhandled SQL errors to rollback transaction
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Database transaction failed during book creation.';
+    END;
+
+    START TRANSACTION;
+
+    -- 1. Input Validation
+    IF p_ISBN IS NULL OR TRIM(p_ISBN) = '' THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: ISBN cannot be blank.';
+        LEAVE proc_label;
+    END IF;
+
+    IF p_Title IS NULL OR TRIM(p_Title) = '' THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Title cannot be blank.';
+        LEAVE proc_label;
+    END IF;
+
+    IF p_AuthorName IS NULL OR TRIM(p_AuthorName) = '' THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Author name cannot be blank.';
+        LEAVE proc_label;
+    END IF;
+
+    IF p_PublisherName IS NULL OR TRIM(p_PublisherName) = '' THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Publisher name cannot be blank.';
+        LEAVE proc_label;
+    END IF;
+
+    IF p_Price < 0 THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Price cannot be negative.';
+        LEAVE proc_label;
+    END IF;
+
+    IF p_TotalCopies < 0 THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Total copies cannot be negative.';
+        LEAVE proc_label;
+    END IF;
+
+    IF p_NoOfPages IS NOT NULL AND p_NoOfPages <= 0 THEN
+        ROLLBACK;
+        SET p_StatusMessage = 'ERROR: Number of pages must be greater than zero.';
+        LEAVE proc_label;
+    END IF;
+
+    -- 2. Duplicate ISBN check
+    IF EXISTS (SELECT 1 FROM `Books` WHERE `ISBN` = TRIM(p_ISBN)) THEN
+        ROLLBACK;
+        SET p_StatusMessage = CONCAT('ERROR: Book with ISBN ', TRIM(p_ISBN), ' already exists.');
+        LEAVE proc_label;
+    END IF;
+
+    -- 3. Resolve or register Publisher
+    SELECT `PublisherID` INTO v_PublisherID 
+    FROM `Publisher` 
+    WHERE `PublisherName` = TRIM(p_PublisherName) 
+    LIMIT 1;
+
+    IF v_PublisherID IS NULL THEN
+        INSERT INTO `Publisher` (`PublisherName`) VALUES (TRIM(p_PublisherName));
+        SET v_PublisherID = LAST_INSERT_ID();
+    END IF;
+
+    -- 4. Insert Book (Initially AvailableCopies = TotalCopies)
+    INSERT INTO `Books` (
+        `ISBN`,
+        `Title`,
+        `AuthorName`,
+        `PublisherID`,
+        `Price`,
+        `NoOfPages`,
+        `Edition`,
+        `TotalCopies`,
+        `AvailableCopies`
+    ) VALUES (
+        TRIM(p_ISBN),
+        TRIM(p_Title),
+        TRIM(p_AuthorName),
+        v_PublisherID,
+        p_Price,
+        p_NoOfPages,
+        NULLIF(TRIM(p_Edition), ''),
+        p_TotalCopies,
+        p_TotalCopies
+    );
+
+    COMMIT;
+    SET p_StatusMessage = CONCAT('SUCCESS: Book "', TRIM(p_Title), '" registered successfully with ', p_TotalCopies, ' available copies.');
+END$$
+
 DELIMITER ;
